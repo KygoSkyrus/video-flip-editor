@@ -1,4 +1,3 @@
-import { cloudinary } from './Homepage';
 
 export const aspectRatios = [
     { label: '9:18', value: 9 / 18 },
@@ -23,24 +22,21 @@ export const formatTime = (time) => {
     return `${minutes < 10 ? '0' + minutes : minutes}:${seconds < 10 ? '0' + seconds : seconds}`;
 };
 
-export const getCroppedVideoUrl = (publicId, cropX, cropY, cropWidth, cropHeight, videoWidth, videoHeight) => {
-    return cloudinary.url(publicId, {
-        resource_type: 'video',
-        transformation: [
-            {
-                crop: 'crop',
-                x: cropX,
-                y: cropY,
-                width: cropWidth,
-                height: cropHeight,
-            },
-            {
-                width: videoWidth, // Optional scaling after crop
-                height: videoHeight,
-                crop: 'scale',
-            },
-        ],
-    });
+
+export const downloadPreviewData = (cropperData) => {
+    const dataStr = JSON.stringify(cropperData, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'previewData.json';
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 };
 
-
+export const convertTimestampToSeconds = (timestamp) => {
+    const [minutes, seconds] = timestamp.split(":").map(Number);
+    return minutes * 60 + seconds;
+};

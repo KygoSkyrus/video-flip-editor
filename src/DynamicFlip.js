@@ -3,19 +3,16 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { CheckIcon, PauseIcon, PlayIcon, SpeakerWaveIcon, XMarkIcon } from '@heroicons/react/16/solid';
 import Draggable from 'react-draggable';
-import { Cloudinary } from 'cloudinary-core';
 
 import video from './assets/video.mp4'
-import { aspectRatios, formatTime, getAspectRatio, playbackSpeeds } from './util';
+import { aspectRatios, downloadPreviewData, formatTime, getAspectRatio, playbackSpeeds } from './util';
 import './VideoCropper.css';
 
-const cloud_name = 'dbxybtpmk'
-export const cloudinary = new Cloudinary({ cloud_name, secure: true });
 
-const Homepage = () => {
+const DynamicFlip = () => {
     const videoRef = useRef(null);
-    const previewRef = useRef(null)
-    const [autoFlip, setAutoFlip] = useState(true)
+    const previewVideo = useRef(null);
+
     const [isPlaying, setIsPlaying] = useState(false);
     const [progress, setProgress] = useState(0);
     const [volume, setVolume] = useState(1);
@@ -24,57 +21,50 @@ const Homepage = () => {
     const [currentTime, setCurrentTime] = useState('00:00');
     const [duration, setDuration] = useState('00:00');
 
-
     const [aspectRatio, setAspectRatio] = useState(9 / 18);
     const [cropperSize, setCropperSize] = useState({ width: 0, height: 0 });
     const [position, setPosition] = useState({ x: 0, y: 0 });
     const [showCropper, setShowCropper] = useState(false);
 
-    const [croppedVideoUrl, setCroppedVideoUrl] = useState(null);
-    const originalVideoSize = { width: 960, height: 540 };
+    const [cropperData, setCropperData] = useState([]);
 
 
-    const handleUpload = async () => {
-        const publicId = 'u76r9ftgxcdewphqiddv';
-        const { x, y, width } = getCropperData();
-
-        const cropHeight = 540 //fixed height
+    const handleCrop = () => {
+        const { x, width } = getCropperData();
         const renderedWidth = videoRef.current.clientWidth; // Rendered video width
 
-        // Calculate the corresponding X coordinate in the actual video
-        const actualX = Math.round((x / renderedWidth) * originalVideoSize.width);
+        const center = ((renderedWidth / 2) - (width / 2)) - x; // half of renderedWidth - half of cropper width
+        const clipPathValue = `inset(${0}px ${renderedWidth - (x + width)}px ${0}px ${x}px)`;
 
-        // Calculate the corresponding cropWidth in the actual video
-        const cropWidth = Math.round((width / renderedWidth) * originalVideoSize.width);
-
-        const cloudinaryUrl = `https://res.cloudinary.com/${cloud_name}/video/upload/c_crop,x_${actualX},y_${y},w_${cropWidth},h_${cropHeight}/${publicId}.mp4`;
-
-        if (croppedVideoUrl) {
-            const video = document.createElement('video');
-            video.width = '100%';
-            video.height = 500;
-            video.className = 'mt-4 w-full';
-            video.id = 'previewVideoRef'
-            video.autoplay = true;
-
-            const source = document.createElement('source');
-            source.src = cloudinaryUrl; // Set the video URL
-            source.type = 'video/mp4';
-
-            video.appendChild(source);
-
-            video.addEventListener('loadedmetadata', () => {
-                previewRef.current.innerHTML = ''; // Clear old content
-                previewRef.current.appendChild(video); // Append new video
-                video.play().catch((error) => console.log('Preview video play error:', error));
-            });
-
-            // Clear previous content and append the video to previewRef
-            // previewRef.current.innerHTML = ''; // Clear any existing preview
-            // previewRef.current.appendChild(video);
-        }
-        setCroppedVideoUrl(cloudinaryUrl);
+        previewVideo.current.style.clipPath = clipPathValue;
+        previewVideo.current.style.transform = `translateX(${center}px)`;
     };
+
+    const saveCropperData = (val) => {
+        const { x, width } = getCropperData();
+
+        const newCropperData = {
+            "timestamp": currentTime,
+            "coordinates": [x, x + width, x, x + width],
+            "volume": volume,
+            "playbackRate": playbackSpeed,
+        }
+
+        const lastEntry = cropperData[cropperData.length - 1];
+        if (
+            !lastEntry ||
+            lastEntry.timestamp !== newCropperData.timestamp ||
+            lastEntry.coordinates.toString() !== newCropperData.coordinates.toString() ||
+            lastEntry.volume !== newCropperData.volume ||
+            lastEntry.playbackRate !== newCropperData.playbackRate
+        ) {
+            val ?
+                // Clear existing entries and start fresh if there are two entries
+                setCropperData([newCropperData])
+                :
+                setCropperData((prevData) => [...prevData, newCropperData]);
+        }
+    }
 
     const handleLoadedMetadata = () => {
         setDuration(formatTime(videoRef.current.duration));
@@ -82,16 +72,12 @@ const Homepage = () => {
 
     useEffect(() => {
         if (videoRef.current) setCropperSizePosition()
-        videoRef.current.addEventListener('loadedmetadata', handleLoadedMetadata);
+        videoRef.current?.addEventListener('loadedmetadata', handleLoadedMetadata);
 
         return () => {
-            videoRef.current.removeEventListener('loadedmetadata', handleLoadedMetadata);
+            videoRef.current?.removeEventListener('loadedmetadata', handleLoadedMetadata);
         };
     }, [aspectRatio]);
-
-    useEffect(() => {
-        if (croppedVideoUrl) previewRef.current.style.height = cropperSize.height + 'px'
-    }, [croppedVideoUrl])
 
 
     function setCropperSizePosition() {
@@ -118,31 +104,28 @@ const Homepage = () => {
     }
 
     const removeCropper = () => {
-        setCroppedVideoUrl(null);
         setShowCropper(false)
     }
 
     const togglePlayPause = () => {
         try {
-            const previewVideo = document.getElementById('previewVideoRef');
-            const mainVideo = videoRef.current;
+            if (videoRef.current.paused) {
+                if (showCropper) handleCrop(); // Trigger crop before playing
 
-            if (mainVideo.paused) {
-                // Check if the video exists in the DOM before playing
-                if (showCropper) handleUpload(); // Trigger upload/crop before playing
-
-                if (previewVideo && previewVideo.readyState >= 3) { // Make sure video is loaded
-                    previewVideo.currentTime = mainVideo.currentTime;
-                    previewVideo.play().catch((error) => console.log('Preview play error', error));
+                if (previewVideo.current) {
+                    previewVideo.current.currentTime = videoRef.current.currentTime;
+                    previewVideo.current.play().catch((error) => console.log('Preview play error', error));
+                    saveCropperData(true);
                 }
 
-                mainVideo.play().catch((error) => console.log('Main video play error', error));
+                videoRef.current.play().catch((error) => console.log('Main video play error', error));
                 setIsPlaying(true);
             } else {
-                mainVideo.pause();
-                if (previewVideo) {
-                    previewVideo.currentTime = mainVideo.currentTime;
-                    previewVideo.pause();
+                videoRef.current.pause();
+                if (previewVideo.current) {
+                    previewVideo.current.currentTime = videoRef.current.currentTime;
+                    previewVideo.current.pause();
+                    saveCropperData(false);
                 }
                 setIsPlaying(false);
             }
@@ -160,23 +143,30 @@ const Homepage = () => {
     const handleSeek = (event) => {
         const seekTime = (event.target.value / 100) * videoRef.current.duration;
         videoRef.current.currentTime = seekTime;
+        // if (previewVideo.current) previewVideo.current.currentTime = seekTime;
         setProgress(event.target.value);
     };
 
     const handleVolumeChange = (event) => {
         const volume = event.target.value;
         videoRef.current.volume = volume;
+        if (previewVideo.current) previewVideo.current.volume = volume;
         setVolume(volume);
     };
 
     const handleSpeedChange = (speed) => {
         videoRef.current.playbackRate = speed;
+        if (previewVideo.current) previewVideo.current.playbackRate = speed;
         setPlaybackSpeed(speed);
     };
 
     const handleAspectRatioChange = (selectedAspectRatio) => {
-        setCroppedVideoUrl(null)
         setAspectRatio(selectedAspectRatio);
+        if (showCropper) {
+            videoRef.current.pause()
+            previewVideo.current?.pause()
+            // togglePlayPause()
+        }
     };
 
     // Handle dragging event to ensure cropper stays within the player
@@ -203,51 +193,11 @@ const Homepage = () => {
         return cropData;
     };
 
-    const downloadCropData = () => {
-        const { x, y, width, height } = getCropperData();
-        const data = {
-            "timestamp": currentTime,
-            "coordinates": [x, x + width, y, originalVideoSize.height],
-            "volume": volume,
-            "playbackRate": playbackSpeed,
-        }
-
-        const dataStr = JSON.stringify(data, null, 2);
-        const blob = new Blob([dataStr], { type: 'application/json' });
-
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = 'previewData.json';
-
-        document.body.appendChild(link);
-        link.click();
-
-        document.body.removeChild(link);
-    };
 
     return (
-        <div className='bg-[#37393f] min-h-screen flex flex-col justify-between'>
-
+        <>
             {/* Upper half (view) */}
             <div className='p-4 px-8'>
-
-                {/* Header */}
-                <div className='flex justify-between items-center mb-4'>
-                    <section>Dynamic Flip</section>
-
-                    <section>
-                        <label htmlFor="filter" className="switch" aria-label="Toggle Filter">
-                            <input type="checkbox" id="filter" checked={!autoFlip} onChange={() => console.log('')} />
-                            <span >Auto Flip</span>
-                            <span className="flex aitems-center">Dynamic Flip
-                            </span>
-                        </label>
-                    </section>
-
-                    <section>
-                        <XMarkIcon className='size-6 font-thin text-gray-500' />
-                    </section>
-                </div>
 
                 {/* Grid */}
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-8">
@@ -277,8 +227,10 @@ const Homepage = () => {
                                             height: `${cropperSize.height}px`,
                                         }}
                                     >
-                                        <div className="line vertical" />
-                                        <div className="line horizontal" />
+                                        <div className="line vertical left-1/3 translate-x-1/3" />
+                                        <div className="line vertical left-2/3 translate-x-2/3" />
+                                        <div className="line horizontal top-1/3 translate-y-1/3" />
+                                        <div className="line horizontal top-2/3 translate-y-2/3" />
                                         <div className="backdrop" />
                                     </div>
                                 </Draggable>
@@ -286,7 +238,7 @@ const Homepage = () => {
 
                         </div>
 
-                        <div className="controls">
+                        <div className="controls mb-[10px]">
                             <section className='flex items-center'>
                                 {/* Play/Pause Button */}
                                 <button onClick={togglePlayPause}>
@@ -358,15 +310,17 @@ const Homepage = () => {
                     {/* Preview */}
                     <div className='text-center'>
                         <div className='flex flex-col h-full'>
-                            <span>Preview</span>
+                            <span className='text-gray-300'>Preview</span>
 
-                            {croppedVideoUrl ?
-                                <div className='flex' ref={previewRef}>
+                            {showCropper ?
+                                <div className='flex ms-8'>
                                     <video
                                         id='previewVideoRef'
                                         width="100%"
-                                        height="500px" className='mt-4' autoPlay >
-                                        <source src={croppedVideoUrl} type="video/mp4" />
+                                        height="500px" className='mt-4'
+                                        ref={previewVideo}
+                                    >
+                                        <source src={video} type="video/mp4" />
                                     </video>
                                 </div>
                                 :
@@ -389,14 +343,14 @@ const Homepage = () => {
                 <section className='flex gap-4'>
                     <button className='px-3 py-1 bg-violet-500 rounded-[10px]' onClick={() => startCropper()}>Start Cropper</button>
                     <button className='px-3 py-1 bg-violet-500 rounded-[10px]' onClick={() => removeCropper()}>Remove Cropper</button>
-                    <button className='px-3 py-1 bg-violet-500 rounded-[10px]' onClick={downloadCropData}>Generate Preview</button>
+                    <button className='px-3 py-1 bg-violet-500 rounded-[10px]' onClick={() => downloadPreviewData(cropperData)}>Generate Preview</button>
                 </section>
                 <section>
                     <button className='px-3 py-1 bg-gray-500 rounded-[10px]'>Cancel</button>
                 </section>
             </div>
-        </div>
+        </>
     )
 }
 
-export default Homepage
+export default DynamicFlip
