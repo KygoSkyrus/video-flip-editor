@@ -143,7 +143,7 @@ const DynamicFlip = () => {
     const handleSeek = (event) => {
         const seekTime = (event.target.value / 100) * videoRef.current.duration;
         videoRef.current.currentTime = seekTime;
-        // if (previewVideo.current) previewVideo.current.currentTime = seekTime;
+        if (previewVideo.current) previewVideo.current.currentTime = seekTime;
         setProgress(event.target.value);
     };
 
@@ -182,6 +182,9 @@ const DynamicFlip = () => {
         setPosition({ x: newX, y: newY });
     };
 
+    const onDragStop = () => {
+        if (showCropper) handleCrop();
+    };
 
     const getCropperData = () => {
         const cropData = {
@@ -218,6 +221,7 @@ const DynamicFlip = () => {
                                 <Draggable
                                     position={position}
                                     onDrag={handleDrag}
+                                    onStop={onDragStop} 
                                     bounds="parent"
                                 >
                                     <div
